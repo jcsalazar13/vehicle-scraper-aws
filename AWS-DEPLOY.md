@@ -57,11 +57,24 @@ La escala **0→25 ya estaba** (`max_workers=25`, `min_capacity=0`, step-scaling
    ```
    > Terraform ya dejó `DATABASE_URL` pre-armado y las demás vacías; con `ignore_changes`,
    > un `apply` futuro NO pisa lo que pongas aquí.
-3. **Construir y subir la imagen** del worker (incluye todo el `src/` nuevo):
+3. **Sembrar el espejo de la base de Playwright en ECR** (una sola vez; el `FROM` del
+   Dockerfile apunta a este espejo, no a `mcr.microsoft.com`, que throttlea los pulls
+   anónimos y rompe el build). Terraform ya creó el repo `vehicle-scraper-playwright-base`:
+   ```bash
+   PW=v1.47.0-jammy   # debe coincidir con "playwright" en package.json y el ARG PW_BASE del Dockerfile
+   BASE=<ACCOUNT>.dkr.ecr.<REGION>.amazonaws.com/vehicle-scraper-playwright-base:1.47.0-jammy
+   docker pull --platform linux/amd64 mcr.microsoft.com/playwright:$PW   # cuando MCR no esté throttleado
+   docker tag mcr.microsoft.com/playwright:$PW "$BASE"
+   docker push "$BASE"
+   ```
+   > Solo hay que repetirlo al **subir de versión** de Playwright. Si MCR está throttleado,
+   > se puede sembrar desde cualquier imagen amd64 que ya tenga la base (p.ej. una `:latest`
+   > previa): `FROM <ECR_URL>:latest` + `USER root` + `RUN rm -rf /app`, build y push al espejo.
+4. **Construir y subir la imagen** del worker (incluye todo el `src/` nuevo):
    ```bash
    cd ../vehicle-scraper-aws
    aws ecr get-login-password | docker login --username AWS --password-stdin <ECR_URL>
-   docker build --platform linux/amd64 -t <ECR_URL>:latest .
+   docker build --platform linux/amd64 -t <ECR_URL>:latest .   # FROM = espejo ECR, sin tocar MCR
    docker push <ECR_URL>:latest
    ```
 

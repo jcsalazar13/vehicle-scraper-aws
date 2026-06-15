@@ -96,6 +96,12 @@ The task definition points at the `latest` image tag, so every run pulls the new
   editing — user-facing scraper output and the `strategies_tried` reasons are expected to be Spanish.
 - The Playwright version in `package.json` **must** equal the Playwright base-image tag in `Dockerfile`
   (currently 1.47.0) — they drift independently and break the navigate strategy if mismatched.
+- The Dockerfile builds `FROM` a **mirror of the Playwright base in your own ECR**
+  (`<acct>.dkr.ecr.<region>.amazonaws.com/vehicle-scraper-playwright-base:<tag>`), not from
+  `mcr.microsoft.com` — MCR throttles anonymous pulls (HTTP 429) and breaks CI. The mirror repo is
+  created by terraform (`ecr_base.tf`) and seeded once. **To bump Playwright:** pull the new
+  `mcr.microsoft.com/playwright:vX-jammy` (amd64), retag+push it to the mirror repo under the new tag,
+  then update both `package.json` and the `PW_BASE` tag in `Dockerfile`. See AWS-DEPLOY.md.
 - Adding a strategy means: implement the `{ ok, vehicles, reason, attempts }` contract, run output
   through `normalizeMany`, and wire it into the ordered chain in `pipeline.js` (pass along any reusable
   HTML so later strategies don't re-fetch).

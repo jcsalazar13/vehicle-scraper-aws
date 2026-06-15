@@ -29,11 +29,19 @@ export async function launchBrowser(remote = false) {
  * (Scraping Browser): página en el contexto por defecto (Bright Data gestiona UA/proxy).
  */
 export async function newScrapePage(browser, remote = false) {
-  if (remote && CONFIG.scrapingBrowser.enabled) {
-    return browser.newPage();
+  const page = (remote && CONFIG.scrapingBrowser.enabled)
+    ? await browser.newPage()
+    : await (await browser.newContext({ userAgent: CONFIG.userAgent, viewport: { width: 1366, height: 900 } })).newPage();
+
+  // Bloquear imágenes/fonts/media: no se usan y son ~70-85% del ancho de banda.
+  // Deja document/script/xhr/fetch (las tarjetas viven ahí).
+  if (CONFIG.blockMedia) {
+    await page.route('**/*', (route) => {
+      const t = route.request().resourceType();
+      return (t === 'image' || t === 'font' || t === 'media') ? route.abort() : route.continue();
+    }).catch(() => { /* el navegador no soporta route: seguir sin bloqueo */ });
   }
-  const ctx = await browser.newContext({ userAgent: CONFIG.userAgent, viewport: { width: 1366, height: 900 } });
-  return ctx.newPage();
+  return page;
 }
 
 /**

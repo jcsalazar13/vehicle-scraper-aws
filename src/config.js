@@ -54,6 +54,10 @@ export const CONFIG = {
     enabled: !!(process.env.SCRAPER_BROWSER_WSS || '').trim(),
   },
 
+  // Bloquear imágenes/fonts/media al navegar (no se usan; recorta ~60-80% del ancho de
+  // banda → baja el costo del Scraping Browser). BLOCK_MEDIA=false para desactivar.
+  blockMedia: process.env.BLOCK_MEDIA !== 'false',
+
   // Rutas típicas donde los dealers publican su inventario
   inventoryPathGuesses: [
     '/inventory', '/used-inventory', '/new-inventory', '/all-inventory',

@@ -25,18 +25,18 @@ export async function carsForSaleExtract(baseUrl, ctx) {
   let browser;
 
   try {
-    browser = await launchBrowser();
+    browser = await launchBrowser(true);
   } catch (e) {
     return { ok: false, vehicles: [], reason: `No se pudo iniciar el navegador: ${e.message}`, attempts };
   }
 
   try {
-    const page = await newScrapePage(browser);
+    const page = await newScrapePage(browser, true);
 
     // Localizar el listado (rutas típicas del template CarsForSale)
     let invUrl = null;
     for (const path of ['/inventory', '/cars-for-sale', '/used-cars-for-sale']) {
-      const { blocked } = await gotoTiered(page, origin + path, { timeout: CONFIG.navTimeoutMs, log, forceManaged: true });
+      const { blocked } = await gotoTiered(page, origin + path, { timeout: CONFIG.navTimeoutMs, log, forceManaged: true, remote: true });
       if (!blocked && await page.$('[class*="vehicle-snapshot"], a[href*="/details/"]')) { invUrl = origin + path; break; }
     }
     if (!invUrl) return { ok: false, vehicles: [], reason: 'CarsForSale: no se encontró el listado (¿DataDome sin Bright Data?)', attempts };
@@ -46,7 +46,7 @@ export async function carsForSaleExtract(baseUrl, ctx) {
     for (let pageNum = 1; pageNum <= CONFIG.maxPagesPerDealer; pageNum++) {
       if (pageNum > 1) {
         const sep = invUrl.includes('?') ? '&' : '?';
-        const { blocked } = await gotoTiered(page, `${invUrl}${sep}page=${pageNum}`, { timeout: CONFIG.navTimeoutMs, log, forceManaged: true });
+        const { blocked } = await gotoTiered(page, `${invUrl}${sep}page=${pageNum}`, { timeout: CONFIG.navTimeoutMs, log, forceManaged: true, remote: true });
         if (blocked) break;
       }
       await page.waitForTimeout(1200);
@@ -68,7 +68,7 @@ export async function carsForSaleExtract(baseUrl, ctx) {
         if (!v.url) continue;
         vdpProbed++;
         try {
-          const { blocked } = await gotoTiered(page, v.url.startsWith('http') ? v.url : origin + v.url, { timeout: 30000, log, forceManaged: true });
+          const { blocked } = await gotoTiered(page, v.url.startsWith('http') ? v.url : origin + v.url, { timeout: 30000, log, forceManaged: true, remote: true });
           if (!blocked) {
             const det = await page.evaluate(extractVdpDetails);
             if (det.vin) { v.vin = det.vin; vinOk++; }

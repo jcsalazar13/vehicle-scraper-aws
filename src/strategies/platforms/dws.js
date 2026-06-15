@@ -31,13 +31,13 @@ export async function dwsExtract(baseUrl, ctx) {
   let browser;
 
   try {
-    browser = await launchBrowser();
+    browser = await launchBrowser(true);
   } catch (e) {
     return { ok: false, vehicles: [], reason: `No se pudo iniciar el navegador: ${e.message}`, attempts };
   }
 
   try {
-    const page = await newScrapePage(browser);
+    const page = await newScrapePage(browser, true);
 
     // El listado renderiza cada vehículo en DOS layouts (lista + grid): solo la
     // vista lista trae VIN/tracción/etc. Fusionamos por stock_number (presente en
@@ -48,15 +48,20 @@ export async function dwsExtract(baseUrl, ctx) {
     while (pageNum <= CONFIG.maxPagesPerDealer) {
       const url = pageNum === 1 ? inventoryUrl : `${inventoryUrl}?page_no=${pageNum}`;
       // Fetch escalonado: navegador → si Cloudflare/DataDome bloquea, servicio gestionado.
-      const { tier, blocked } = await gotoTiered(page, url, { timeout: CONFIG.navTimeoutMs, log: ctx.log });
+      const { tier, blocked } = await gotoTiered(page, url, { timeout: CONFIG.navTimeoutMs, log: ctx.log, remote: true });
       if (blocked) { attempts.push(`${url} -> bloqueado anti-bot (sin escalado disponible)`); break; }
       if (tier === 2) attempts.push(`${url} -> resuelto vía servicio gestionado (Tier 2)`);
 
-      // Esperar a que rendericen las tarjetas (pasado el challenge de Cloudflare)
-      await page.waitForSelector('.dws-vehicle-listing-item-title', { timeout: 15_000 }).catch(() => {});
-      for (let i = 0; i < 4; i++) { await page.mouse.wheel(0, 4000); await page.waitForTimeout(500); }
-
-      const pageCards = await page.evaluate(extractCardsInPage);
+      // Esperar a que rendericen las tarjetas; si vienen 0 (sesión remota lenta),
+      // reintentar la navegación una vez antes de dar la página por vacía.
+      let pageCards = [];
+      for (let intento = 0; intento < 2; intento++) {
+        await page.waitForSelector('.dws-vehicle-listing-item-title', { timeout: 15_000 }).catch(() => {});
+        for (let i = 0; i < 4; i++) { await page.mouse.wheel(0, 4000); await page.waitForTimeout(500); }
+        pageCards = await page.evaluate(extractCardsInPage);
+        if (pageCards.length > 0) break;
+        if (intento === 0) await gotoTiered(page, url, { timeout: CONFIG.navTimeoutMs, log: ctx.log, remote: true });
+      }
 
       let nuevos = 0;
       for (const c of pageCards) {

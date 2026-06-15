@@ -7,8 +7,10 @@ import { CONFIG } from '../config.js';
  * CONECTA al Chrome remoto de Bright Data (que pasa Cloudflare/DataDome); si no, lanza
  * Chromium local. Los extractores usan esto en vez de chromium.launch().
  */
-export async function launchBrowser() {
-  if (!CONFIG.scrapingBrowser.enabled) return chromium.launch({ headless: true });
+export async function launchBrowser(remote = false) {
+  // remote=true (plataformas bloqueadas) + Scraping Browser configurado → navegador remoto.
+  // Si no, Chromium local (gratis) — las plataformas abiertas no necesitan anti-bot.
+  if (!remote || !CONFIG.scrapingBrowser.enabled) return chromium.launch({ headless: true });
   // Conexión al navegador remoto con reintentos (los WebSocket 500/timeout son transitorios)
   let lastErr;
   for (let i = 1; i <= 3; i++) {
@@ -26,8 +28,8 @@ export async function launchBrowser() {
  * Crea una página para scrapear. Local: contexto nuevo con UA/viewport. Remoto
  * (Scraping Browser): página en el contexto por defecto (Bright Data gestiona UA/proxy).
  */
-export async function newScrapePage(browser) {
-  if (CONFIG.scrapingBrowser.enabled) {
+export async function newScrapePage(browser, remote = false) {
+  if (remote && CONFIG.scrapingBrowser.enabled) {
     return browser.newPage();
   }
   const ctx = await browser.newContext({ userAgent: CONFIG.userAgent, viewport: { width: 1366, height: 900 } });
@@ -117,10 +119,10 @@ export async function fetchViaApi(targetUrl, { log } = {}) {
  * Navegación escalonada: intenta con el navegador; si queda bloqueado, trae el HTML del
  * servicio gestionado y lo inyecta en la página. Devuelve { tier, blocked }.
  */
-export async function gotoTiered(page, url, { timeout = 45000, settleMs = 3000, log, forceManaged = false } = {}) {
+export async function gotoTiered(page, url, { timeout = 45000, settleMs = 3000, log, forceManaged = false, remote = false } = {}) {
   // Si la página viene de un navegador remoto (Scraping Browser), él ya pasa el anti-bot:
   // navegamos en vivo y el extractor corre tal cual (scroll, waitForSelector, etc.).
-  if (CONFIG.scrapingBrowser.enabled) {
+  if (remote && CONFIG.scrapingBrowser.enabled) {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout }).catch((e) => log?.warn?.(`[scraping-browser] goto: ${e.message}`));
     // Esperar a que terminen los XHR que cargan las tarjetas (reduce la variabilidad de sesión)
     await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});

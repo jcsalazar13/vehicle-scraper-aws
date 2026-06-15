@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 import { CONFIG } from '../../config.js';
 import { normalizeMany } from '../../normalizer.js';
-import { gotoTiered } from '../../fetch/managed-fetch.js';
+import { gotoTiered, launchBrowser, newScrapePage } from '../../fetch/managed-fetch.js';
 
 /**
  * EXTRACTOR DE LA FAMILIA "DWS" (Dealer Web Services) — cubre DealerCenter
@@ -31,15 +31,13 @@ export async function dwsExtract(baseUrl, ctx) {
   let browser;
 
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await launchBrowser();
   } catch (e) {
     return { ok: false, vehicles: [], reason: `No se pudo iniciar el navegador: ${e.message}`, attempts };
   }
 
   try {
-    const page = await (await browser.newContext({
-      userAgent: CONFIG.userAgent, viewport: { width: 1366, height: 900 },
-    })).newPage();
+    const page = await newScrapePage(browser);
 
     // El listado renderiza cada vehículo en DOS layouts (lista + grid): solo la
     // vista lista trae VIN/tracción/etc. Fusionamos por stock_number (presente en

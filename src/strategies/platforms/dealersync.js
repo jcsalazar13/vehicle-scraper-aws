@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import { CONFIG } from '../../config.js';
 import { normalizeMany } from '../../normalizer.js';
+import { launchBrowser, newScrapePage } from '../../fetch/managed-fetch.js';
 
 /**
  * EXTRACTOR DE PLATAFORMA — DealerSync (images.dealersync.com)
@@ -20,15 +21,13 @@ export async function dealerSyncExtract(baseUrl, ctx) {
   let browser;
 
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await launchBrowser();
   } catch (e) {
     return { ok: false, vehicles: [], reason: `No se pudo iniciar el navegador: ${e.message}`, attempts };
   }
 
   try {
-    const page = await (await browser.newContext({
-      userAgent: CONFIG.userAgent, viewport: { width: 1366, height: 900 },
-    })).newPage();
+    const page = await newScrapePage(browser);
 
     // 1) Llegar a la página de inventario
     const inventoryUrl = await findInventoryUrl(page, baseUrl, origin);

@@ -46,6 +46,14 @@ export const CONFIG = {
     timeoutMs: parseInt(process.env.SCRAPER_TIMEOUT_MS || '90000', 10),
   },
 
+  // --- Navegador remoto anti-bot (Bright Data Scraping Browser / "Browser API") ---
+  // Endpoint CDP wss://...@brd.superproxy.io:9222 — cuando está, los extractores se
+  // conectan a ese Chrome remoto (pasa Cloudflare/DataDome) en vez del Chromium local.
+  scrapingBrowser: {
+    wss: (process.env.SCRAPER_BROWSER_WSS || '').trim(),
+    enabled: !!(process.env.SCRAPER_BROWSER_WSS || '').trim(),
+  },
+
   // Rutas típicas donde los dealers publican su inventario
   inventoryPathGuesses: [
     '/inventory', '/used-inventory', '/new-inventory', '/all-inventory',

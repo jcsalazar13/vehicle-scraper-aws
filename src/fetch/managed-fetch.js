@@ -1,5 +1,38 @@
 import { request } from 'undici';
+import { chromium } from 'playwright';
 import { CONFIG } from '../config.js';
+
+/**
+ * Lanza el navegador: si hay Scraping Browser configurado (SCRAPER_BROWSER_WSS), se
+ * CONECTA al Chrome remoto de Bright Data (que pasa Cloudflare/DataDome); si no, lanza
+ * Chromium local. Los extractores usan esto en vez de chromium.launch().
+ */
+export async function launchBrowser() {
+  if (!CONFIG.scrapingBrowser.enabled) return chromium.launch({ headless: true });
+  // Conexión al navegador remoto con reintentos (los WebSocket 500/timeout son transitorios)
+  let lastErr;
+  for (let i = 1; i <= 3; i++) {
+    try {
+      return await chromium.connectOverCDP(CONFIG.scrapingBrowser.wss, { timeout: 60_000 });
+    } catch (e) {
+      lastErr = e;
+      await new Promise((r) => setTimeout(r, 2000 * i));
+    }
+  }
+  throw lastErr;
+}
+
+/**
+ * Crea una página para scrapear. Local: contexto nuevo con UA/viewport. Remoto
+ * (Scraping Browser): página en el contexto por defecto (Bright Data gestiona UA/proxy).
+ */
+export async function newScrapePage(browser) {
+  if (CONFIG.scrapingBrowser.enabled) {
+    return browser.newPage();
+  }
+  const ctx = await browser.newContext({ userAgent: CONFIG.userAgent, viewport: { width: 1366, height: 900 } });
+  return ctx.newPage();
+}
 
 /**
  * CAPA DE FETCH GESTIONADA (anti-bot)
@@ -85,8 +118,18 @@ export async function fetchViaApi(targetUrl, { log } = {}) {
  * servicio gestionado y lo inyecta en la página. Devuelve { tier, blocked }.
  */
 export async function gotoTiered(page, url, { timeout = 45000, settleMs = 3000, log, forceManaged = false } = {}) {
+  // Si la página viene de un navegador remoto (Scraping Browser), él ya pasa el anti-bot:
+  // navegamos en vivo y el extractor corre tal cual (scroll, waitForSelector, etc.).
+  if (CONFIG.scrapingBrowser.enabled) {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout }).catch((e) => log?.warn?.(`[scraping-browser] goto: ${e.message}`));
+    // Esperar a que terminen los XHR que cargan las tarjetas (reduce la variabilidad de sesión)
+    await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
+    await page.waitForTimeout(settleMs);
+    return { tier: 'remote', blocked: false };
+  }
+
   // forceManaged: plataformas que sabemos tras DataDome (CarsForSale) — el navegador
-  // recibe el captcha y isBlocked() no siempre lo detecta en el DOM; vamos directo a Tier 2.
+  // local recibe el captcha y isBlocked() no siempre lo detecta; vamos directo a Tier 2.
   if (forceManaged && CONFIG.managedFetch.enabled) {
     const apiHtml = await fetchViaApi(url, { log });
     if (apiHtml && apiHtml.length > 1500) {

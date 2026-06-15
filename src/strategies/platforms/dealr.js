@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import { CONFIG } from '../../config.js';
 import { normalizeMany } from '../../normalizer.js';
+import { launchBrowser, newScrapePage } from '../../fetch/managed-fetch.js';
 
 /**
  * EXTRACTOR DE PLATAFORMA — Dealr.cloud (dealrcloud.com / dealrimages.com)
@@ -20,15 +21,13 @@ export async function dealrExtract(baseUrl, ctx) {
   let browser;
 
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await launchBrowser();
   } catch (e) {
     return { ok: false, vehicles: [], reason: `No se pudo iniciar el navegador: ${e.message}`, attempts };
   }
 
   try {
-    const page = await (await browser.newContext({
-      userAgent: CONFIG.userAgent, viewport: { width: 1366, height: 900 },
-    })).newPage();
+    const page = await newScrapePage(browser);
 
     // Llegar al inventario
     let invUrl = null;

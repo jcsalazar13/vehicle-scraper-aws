@@ -1,0 +1,54 @@
+name: deploy-worker
+
+# Despliega el worker al hacer push a main cuando cambia el código del scraper.
+# Autenticación a AWS vía OIDC (sin access keys). El rol y sus permisos los crea
+# terraform (github_cicd.tf); las Variables del repo (vars.*) las configuras en
+# GitHub → Settings → Secrets and variables → Actions → Variables.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Dockerfile'
+      - 'package.json'
+      - 'package-lock.json'
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # necesario para OIDC
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar credenciales AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login a ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build y push de la imagen
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          REPO: ${{ vars.ECR_REPOSITORY }}
+          SHA: ${{ github.sha }}
+        run: |
+          docker build --platform linux/amd64 \
+            -t "$REGISTRY/$REPO:latest" \
+            -t "$REGISTRY/$REPO:$SHA" .
+          docker push "$REGISTRY/$REPO:latest"
+          docker push "$REGISTRY/$REPO:$SHA"
+
+      - name: Reciclar el servicio ECS (usa la nueva imagen latest)
+        run: |
+          aws ecs update-service \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --service "${{ vars.ECS_SERVICE }}" \
+            --force-new-deployment >/dev/null

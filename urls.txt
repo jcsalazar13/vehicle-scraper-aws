@@ -1,0 +1,4 @@
+# Una URL de dealer por línea. Las líneas con # se ignoran.
+# Ejemplos (reemplaza por tus URLs reales):
+# https://www.ejemplodealer1.com
+# https://www.ejemplodealer2.com/inventory

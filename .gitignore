@@ -1,0 +1,22 @@
+# Secretos / entorno — NUNCA subir
+.env
+.env.*
+!.env.example
+
+# Dependencias y build
+node_modules/
+.build/
+
+# Logs y artefactos de corridas/análisis
+logs/
+*.log
+platform-map.csv
+cascade-map.csv
+reprobe-map.csv
+vendor-tally.txt
+triage-dead.txt
+urls.*.txt
+!urls.txt
+
+# Sistema
+.DS_Store

@@ -1,0 +1,34 @@
+name: deploy-dispatcher
+
+# Actualiza la Lambda dispatcher al hacer push a main cuando cambia su código.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dispatcher/**'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar credenciales AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Empaquetar y actualizar la Lambda
+        env:
+          FUNCTION: ${{ vars.LAMBDA_FUNCTION }}
+        run: |
+          cd dispatcher && zip -r ../dispatcher.zip . && cd ..
+          aws lambda update-function-code \
+            --function-name "$FUNCTION" \
+            --zip-file fileb://dispatcher.zip >/dev/null

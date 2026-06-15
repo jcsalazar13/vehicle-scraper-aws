@@ -1,0 +1,23 @@
+{
+  "name": "vehicle-inventory-scraper",
+  "version": "2.0.0",
+  "description": "Scraper de inventario de vehículos multi-estrategia, distribuido con SQS + ECS Fargate + PostgreSQL",
+  "type": "module",
+  "main": "src/worker.js",
+  "scripts": {
+    "worker": "node src/worker.js",
+    "scrape": "node src/index.js --urls urls.txt",
+    "report": "node src/report.js",
+    "browsers": "npx playwright install chromium"
+  },
+  "dependencies": {
+    "@aws-sdk/client-sqs": "^3.620.0",
+    "cheerio": "^1.0.0",
+    "pg": "^8.12.0",
+    "playwright": "1.47.0",
+    "undici": "^6.19.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

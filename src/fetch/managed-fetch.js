@@ -104,14 +104,15 @@ function providerRequest(targetUrl) {
 }
 
 /** Tier 2: pide el HTML renderizado al servicio gestionado. Devuelve '' si falla/no hay key. */
-export async function fetchViaApi(targetUrl, { log } = {}) {
+export async function fetchViaApi(targetUrl, { log, timeoutMs } = {}) {
   if (!CONFIG.managedFetch.enabled) {
     log?.warn?.(`[managed-fetch] bloqueado y sin SCRAPER_API_KEY → no se puede escalar: ${targetUrl}`);
     return '';
   }
+  const t = timeoutMs || CONFIG.managedFetch.timeoutMs;
   const { url, method = 'GET', headers, body: reqBody, parse } = providerRequest(targetUrl);
   try {
-    const res = await request(url, { method, headers, body: reqBody, headersTimeout: CONFIG.managedFetch.timeoutMs, bodyTimeout: CONFIG.managedFetch.timeoutMs });
+    const res = await request(url, { method, headers, body: reqBody, headersTimeout: t, bodyTimeout: t });
     const body = await res.body.text();
     if (res.statusCode >= 400) { log?.warn?.(`[managed-fetch] ${CONFIG.managedFetch.provider} HTTP ${res.statusCode}: ${body.slice(0, 150)}`); return ''; }
     const html = parse(body);

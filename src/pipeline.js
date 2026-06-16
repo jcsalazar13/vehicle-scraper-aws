@@ -3,6 +3,7 @@ import { log } from './logger.js';
 import { apiStrategy } from './strategies/api.js';
 import { embeddedStrategy } from './strategies/embedded.js';
 import { navigateStrategy } from './strategies/navigate.js';
+import { unlockedStrategy } from './strategies/unlocked.js';
 import { aiStrategy } from './strategies/ai.js';
 import { extractorFor } from './strategies/platforms/registry.js';
 
@@ -86,6 +87,15 @@ export async function processUrl(url, runId, workerId = null, platform = null) {
     renderedHtml = nav.renderedHtml || '';
     if (nav.ok) winner = { name: 'navigate', ...nav };
     else log.warn(`[${url}] Navegación sin resultado: ${nav.reason}`);
+  }
+
+  // 3.5) Desbloqueo anti-bot: genéricos server-rendered tras 403 (Web Unlocker + VIN-anclado).
+  // Barato ($1.5/1000) y solo corre si todo lo anterior falló → costo acotado a los perdidos.
+  if (!winner) {
+    const unl = await unlockedStrategy(url, ctx);
+    tried.push({ strategy: 'unlocked', ok: unl.ok, reason: unl.reason, attempts: unl.attempts?.slice(0, 15) });
+    if (unl.ok) winner = { name: 'unlocked', ...unl };
+    else log.warn(`[${url}] Unlocked sin resultado: ${unl.reason}`);
   }
 
   // 4) IA

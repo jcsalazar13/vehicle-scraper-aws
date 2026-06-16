@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import dns from 'node:dns/promises';
 import { request } from 'undici';
 import { chromium } from 'playwright';
+import { HOST_SIGNATURES, matchHtml } from './platform-signatures.js';
 
 /**
  * DETECTOR DE PLATAFORMA (sin navegador, barato)
@@ -17,49 +18,6 @@ const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (
 const TIMEOUT = parseInt(process.env.TIMEOUT_MS || '8000', 10);
 const CONCURRENCY = parseInt(process.env.CONC || '6', 10);
 
-// Firmas por hostname/CNAME (señal más fuerte: no depende del HTML)
-const HOST_SIGNATURES = [
-  [/dealercenterwebsite\.net|dealercenter\.net/i, 'DealerCenter'],
-  [/mycarsonline\.com/i, 'DealerCarSearch'],
-  [/v12soft\.com/i, 'V12Software'],
-  [/godealergo\.com/i, 'DealerGo'],
-  [/theshopclubs\.com/i, 'ShopClubs'],
-  [/dealeron\.com/i, 'DealerOn'],
-  [/dealerinspire\.com/i, 'DealerInspire'],
-  [/dealer\.com|edgepilot|ddc\.com/i, 'Dealer.com'],
-  [/wixsite\.com|wix\.com/i, 'Wix'],
-  [/facebook\.com/i, 'Facebook (sin inventario)'],
-];
-
-// Firmas por contenido HTML
-const HTML_SIGNATURES = [
-  [/dws-vehicle|dealercenter/i, 'DealerCenter'],
-  [/ws-inv-data|data-widget-name|ddc\.com|"dealer\.com"/i, 'Dealer.com'],
-  [/dealerinspire|di-cta|cms-content-di/i, 'DealerInspire'],
-  [/dealeron|do-app|dealeroncdn/i, 'DealerOn'],
-  [/mycarsonline|dealercarsearch/i, 'DealerCarSearch'],
-  [/v12soft|v12software/i, 'V12Software'],
-  [/motorlot/i, 'MotorLot'],
-  [/dealersync/i, 'DealerSync'],
-  [/overfuel/i, 'OverFuel'],
-  [/dealrcloud|dealrimages|dealr\.cloud/i, 'Dealr.cloud'],
-  [/carsforsale\.com/i, 'CarsForSale.com'],
-  [/goxee/i, 'GoxeeDealer'],
-  [/frazer/i, 'Frazer'],
-  [/cdn-website\.com|dudaone|duda\.co/i, 'Duda (constructor)'],
-  [/captcha-delivery\.com|datadome/i, 'DataDome (anti-bot)'],
-  [/wsimg\.com|secureserver|starfield|godaddysites/i, 'GoDaddy (constructor)'],
-  [/automanager\.com|deskmanager/i, 'AutoManager'],
-  [/autorevo/i, 'AutoRevo'],
-  [/dealerfire/i, 'DealerFire'],
-  [/autocorner\.com/i, 'AutoCorner'],
-  [/hugedomains|godaddy.*parked|domain.*for sale|expireddomains/i, 'PARQUEADO (en venta)'],
-  [/wp-content|wp-json|wordpress/i, 'WordPress (genérico)'],
-  [/wix\.com|_wixCssImports/i, 'Wix'],
-  [/squarespace/i, 'Squarespace'],
-  [/shopify/i, 'Shopify'],
-];
-
 function cleanUrl(raw) {
   if (!raw) return null;
   let u = raw.trim().replace(/^https?:\/\//i, '').replace(/^https?:\/\//i, ''); // doble http://
@@ -68,8 +26,6 @@ function cleanUrl(raw) {
   if (!/\./.test(u)) return null;
   return 'https://' + u.replace(/\/+$/, '');
 }
-
-const matchHtml = (html) => { for (const [re, name] of HTML_SIGNATURES) if (re.test(html)) return name; return null; };
 
 async function fingerprint(url, browser) {
   const host = new URL(url).hostname;

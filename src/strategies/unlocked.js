@@ -71,10 +71,12 @@ async function tierWebUnlocker(url, origin, attempts, log) {
 
   const byKey = new Map();
   let spaLikely = false;
+  let bestLen = 0;
   let browser;
   try {
     for (const { u, h: html } of fetched) {
       if (!html || html.length < 2000) { attempts.push(`A ${u} → ${html?.length || 0}b (vacío)`); continue; }
+      bestLen = Math.max(bestLen, html.length);
       // ¿señales de SPA? templates, módulos JS, o muchos links de detalle sin tarjetas
       if (/\{\{|ng-repeat|v-for|__NUXT__|__NEXT_DATA__|vehicleDetailUrl|\/_content\/|data-react/i.test(html)
         || (html.match(/\/(details|vehicle|inventory|vdp)\//gi) || []).length >= 6) spaLikely = true;
@@ -88,7 +90,10 @@ async function tierWebUnlocker(url, origin, attempts, log) {
       attempts.push(`A ${u} → ${html.length}b, ${raw.length} tarjetas (${nuevos} nuevas)`);
     }
   } finally { await browser?.close().catch(() => {}); }
-  return { raw: [...byKey.values()], spaLikely };
+  // Guard del Tier B (caro): además de los markers de SPA, basta con que el Web Unlocker
+  // haya traído HTML sustancial (≥8KB) sin tarjetas → es un sitio real sin parsear (SPA o
+  // markup custom), vale renderizarlo. Solo se omite si todo vino vacío/mínimo (muerto).
+  return { raw: [...byKey.values()], spaLikely: spaLikely || bestLen >= 8000 };
 }
 
 /** TIER B: navegador remoto que ejecuta JS. Descubre inventario, pagina, intercepta API + DOM. */
@@ -123,7 +128,7 @@ async function tierRemoteRender(url, origin, attempts, log) {
     const bases = [...new Set([invUrl, `${origin}/inventory`, `${origin}/used-vehicles`, `${origin}/used-inventory`].filter(Boolean))];
     for (const base of bases) {
       let aporto = false;
-      for (let pg = 1; pg <= Math.min(CONFIG.maxPagesPerDealer, 8); pg++) {
+      for (let pg = 1; pg <= Math.min(CONFIG.maxPagesPerDealer, 3); pg++) { // cap 3 págs: ahorra ancho de banda $8/GB
         const u = pg === 1 ? base : `${base}${base.includes('?') ? '&' : '?'}page=${pg}`;
         const resp = await page.goto(u, { waitUntil: 'domcontentloaded', timeout: CONFIG.navTimeoutMs }).catch(() => null);
         if ((resp?.status() ?? 404) >= 400) break;

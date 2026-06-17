@@ -7,20 +7,35 @@ import { CONFIG } from '../config.js';
  * CONECTA al Chrome remoto de Bright Data (que pasa Cloudflare/DataDome); si no, lanza
  * Chromium local. Los extractores usan esto en vez de chromium.launch().
  */
+// Semáforo: limita las sesiones concurrentes del Scraping Browser POR PROCESO. Cada sesión
+// consume balance ($8/GB); con WORKER_CONCURRENCY dealers por tarea, esto evita que todas
+// abran navegador remoto a la vez y quemen balance / topen la concurrencia de Bright Data.
+const SB_MAX = Math.max(1, parseInt(process.env.SCRAPER_BROWSER_MAX || '1', 10));
+let sbActive = 0;
+const sbWaiters = [];
+const sbAcquire = () => (sbActive < SB_MAX ? (sbActive++, Promise.resolve()) : new Promise((r) => sbWaiters.push(r)));
+const sbRelease = () => { sbActive--; const next = sbWaiters.shift(); if (next) { sbActive++; next(); } };
+
 export async function launchBrowser(remote = false) {
   // remote=true (plataformas bloqueadas) + Scraping Browser configurado → navegador remoto.
   // Si no, Chromium local (gratis) — las plataformas abiertas no necesitan anti-bot.
   if (!remote || !CONFIG.scrapingBrowser.enabled) return chromium.launch({ headless: true });
-  // Conexión al navegador remoto con reintentos (los WebSocket 500/timeout son transitorios)
+  await sbAcquire(); // cap de concurrencia (se mantiene hasta browser.close())
   let lastErr;
   for (let i = 1; i <= 3; i++) {
     try {
-      return await chromium.connectOverCDP(CONFIG.scrapingBrowser.wss, { timeout: 60_000 });
+      const browser = await chromium.connectOverCDP(CONFIG.scrapingBrowser.wss, { timeout: 60_000 });
+      // Mantener el semáforo durante TODA la sesión: liberar al cerrar el navegador.
+      const origClose = browser.close.bind(browser);
+      let released = false;
+      browser.close = async () => { try { await origClose(); } finally { if (!released) { released = true; sbRelease(); } } };
+      return browser;
     } catch (e) {
       lastErr = e;
       await new Promise((r) => setTimeout(r, 2000 * i));
     }
   }
+  sbRelease(); // el connect falló tras los reintentos → liberar el cupo
   throw lastErr;
 }
 

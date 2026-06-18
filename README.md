@@ -28,6 +28,62 @@ Lambda "dispatcher" ──► SQS (1 mensaje por dealer) ──► DLQ (fallos r
   (~1–2 USD por corrida de 500 dealers) + RDS t4g.micro (~12 USD/mes). Sin NAT Gateway:
   las tareas usan IP pública.
 
+### Flujo de extracción por dealer (pipeline + estrategias)
+
+Cada dealer pasa por una cascada que **se detiene en la primera estrategia que da OK**.
+Si tiene plataforma conocida (tag de `urls.txt`) usa su extractor específico; si no, o si
+falla, cae a la cascada genérica:
+
+```
+   ¿plataforma conocida?  (tag de urls.txt)
+      │ SÍ                                          │ NO
+      ▼                                             │
+ ┌──────────────────────────────────────┐          │
+ │  EXTRACTOR DE PLATAFORMA              │          │
+ │   DealerCenter / DealerCarSearch ─┐   │          │
+ │   CarsForSale ────────────────────┼─► Scraping   │
+ │                                   │   Browser    │
+ │   DealerSync / Dealr / OverFuel  ─┐              │
+ │   DealerInspire / Dealer.com ─────┼─► Chromium   │
+ │                                   │   local      │
+ └───────────────┬──────────────────┘              │
+            OK ──┤   falla ─────────────────────────┤
+                 │                                   ▼
+                 │   ┌───────────── CASCADA GENÉRICA ─────────────┐
+                 │   │ 1. api       → endpoints JSON de inventario│
+                 │   │ 2. embedded  → JSON-LD / __NEXT_DATA__/JSON│
+                 │   │ 3. navigate  → Chromium local: XHR + DOM   │
+                 │   │ 4. unlocked  → anti-bot (ver abajo)        │
+                 │   │ 5. ai        → Claude (último recurso)     │
+                 │   └──────────────────┬─────────────────────────┘
+                 ▼                       ▼
+          primer OK ──► normalizar ──► PostgreSQL (upsert idempotente)
+          todo falla ──► registrar 'failed' + razones por estrategia
+```
+
+**Estrategia `unlocked`** (para genéricos detrás de anti-bot), de barato a caro con un
+*guard* que evita gastar el navegador caro en sitios muertos:
+
+```
+ TIER A · Web Unlocker ($1.5/1000)      ← barato, sitios server-rendered
+    HTML de varias rutas → DOM-cards + VIN-anclado, fusiona
+       │ encontró vehículos ───────────────────────► OK
+       │ 0 vehículos
+       ▼
+    ¿HTML ≥8KB ó markers SPA ({{}}, módulos JS)?     ◄── GUARD de costo
+       │ NO ─► falla   (sitio muerto → NO gasta Scraping Browser)
+       │ SÍ
+       ▼
+ TIER B · Scraping Browser ($8/GB, semáforo 1/proceso)   ← SPA con JS
+    navegador remoto que EJECUTA JS: home → descubre link de
+    inventario → pagina (máx 3) → intercepta API JSON + DOM renderizado
+       └────────────────────────────────────────────► OK / falla
+```
+
+**Capa de fetch** (común, de gratis a caro): Chromium local (gratis) · Web Unlocker
+(HTTP, $1.5/1000, pasa anti-bot) · Scraping Browser (CDP, $8/GB, navegador real con JS).
+`blockMedia` bloquea imágenes/fonts/media (−60–80 % de ancho de banda en los pagos).
+
 ## Despliegue (una sola vez)
 
 Requisitos: Terraform >= 1.5, Docker, AWS CLI configurado.

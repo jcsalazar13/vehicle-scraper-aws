@@ -3,6 +3,7 @@ import { CONFIG } from '../config.js';
 import { normalizeMany } from '../normalizer.js';
 import { fetchViaApi, launchBrowser, newScrapePage } from '../fetch/managed-fetch.js';
 import { findVehicleArrays } from '../utils/http.js';
+import { extractFromHtml } from './embedded.js';
 
 /**
  * ESTRATEGIA "UNLOCKED" — último recurso para genéricos bloqueados por anti-bot.
@@ -40,9 +41,8 @@ export async function unlockedStrategy(url, ctx) {
   let spaLikely = false;
   if (CONFIG.managedFetch.enabled) {
     const a = await tierWebUnlocker(url, origin, attempts, log);
-    if (a.raw.length) {
-      const vehicles = normalizeMany(a.raw, origin);
-      if (vehicles.length) return { ok: true, vehicles, reason: `unlocked/web-unlocker: ${vehicles.length} vehículos`, attempts };
+    if (a.vehicles.length) {
+      return { ok: true, vehicles: a.vehicles, reason: `unlocked/web-unlocker: ${a.vehicles.length} vehículos`, attempts };
     }
     spaLikely = a.spaLikely;
   }
@@ -69,7 +69,9 @@ async function tierWebUnlocker(url, origin, attempts, log) {
   const fetched = await Promise.all(candidates.map((u) =>
     fetchViaApi(u, { log, timeoutMs: 35_000 }).then((h) => ({ u, h })).catch(() => ({ u, h: '' }))));
 
-  const byKey = new Map();
+  const merged = new Map(); // clave → vehículo YA normalizado (dedupe por VIN o year|make|model)
+  const addV = (v) => { const k = v.vin || (v.year && v.make ? `${v.year}|${v.make}|${v.model}` : null); if (k && !merged.has(k)) merged.set(k, v); };
+  const cardRaws = [];
   let spaLikely = false;
   let bestLen = 0;
   let browser;
@@ -80,20 +82,26 @@ async function tierWebUnlocker(url, origin, attempts, log) {
       // ¿señales de SPA? templates, módulos JS, o muchos links de detalle sin tarjetas
       if (/\{\{|ng-repeat|v-for|__NUXT__|__NEXT_DATA__|vehicleDetailUrl|\/_content\/|data-react/i.test(html)
         || (html.match(/\/(details|vehicle|inventory|vdp)\//gi) || []).length >= 6) spaLikely = true;
+      // (i) INVENTARIO EMBEBIDO en el HTML (JSON-LD / __NEXT_DATA__ / __NUXT__ / __INITIAL_STATE__
+      //     / JSON inline). Recupera SPA Next/Nuxt SIN renderizar — el HTML ya lo trajo el Web
+      //     Unlocker barato, evitando escalar al Scraping Browser caro.
+      try { for (const v of extractFromHtml(html, origin).vehicles) addV(v); } catch { /* parse falló */ }
+      // (ii) tarjetas del DOM + VIN-anclado (markup custom server-rendered)
       if (!browser) browser = await chromium.launch({ headless: true });
       const page = await browser.newPage();
       await page.setContent(html, { waitUntil: 'commit' }).catch(() => {});
       const raw = await page.evaluate(extractInPage).catch(() => []);
       await page.close().catch(() => {});
-      let nuevos = 0;
-      for (const v of raw) { const k = vkey(v); if (k && !byKey.has(k)) { byKey.set(k, v); nuevos++; } }
-      attempts.push(`A ${u} → ${html.length}b, ${raw.length} tarjetas (${nuevos} nuevas)`);
+      cardRaws.push(...raw);
+      attempts.push(`A ${u} → ${html.length}b · embebido=${merged.size} · ${raw.length} tarjetas`);
     }
   } finally { await browser?.close().catch(() => {}); }
+  // Fusionar las tarjetas del DOM (normalizadas) con lo embebido, dedupe por VIN/clave.
+  for (const v of normalizeMany(cardRaws, origin)) addV(v);
   // Guard del Tier B (caro): además de los markers de SPA, basta con que el Web Unlocker
-  // haya traído HTML sustancial (≥8KB) sin tarjetas → es un sitio real sin parsear (SPA o
-  // markup custom), vale renderizarlo. Solo se omite si todo vino vacío/mínimo (muerto).
-  return { raw: [...byKey.values()], spaLikely: spaLikely || bestLen >= 8000 };
+  // haya traído HTML sustancial (≥8KB) sin vehículos → sitio real sin parsear (SPA o markup
+  // custom), vale renderizarlo. Solo se omite si todo vino vacío/mínimo (muerto).
+  return { vehicles: [...merged.values()], spaLikely: spaLikely || bestLen >= 8000 };
 }
 
 /** TIER B: navegador remoto que ejecuta JS. Descubre inventario, pagina, intercepta API + DOM. */

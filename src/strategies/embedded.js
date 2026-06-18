@@ -123,12 +123,14 @@ export function extractFromHtml(html, origin) {
 
 function collectLdVehicles(item, out) {
   if (!item || typeof item !== 'object') return;
-  const type = String(item['@type'] || '').toLowerCase();
-  if (['vehicle', 'car', 'motorcycle', 'motorizedbicycle'].includes(type)) {
+  // @type puede ser string O array (p.ej. ["Product","Car"] en muchas fichas VDP)
+  const types = (Array.isArray(item['@type']) ? item['@type'] : [item['@type']]).map((t) => String(t || '').toLowerCase());
+  const vin = item.vehicleIdentificationNumber || item.vin || item.mpn;
+  if (types.some((t) => ['vehicle', 'car', 'motorcycle', 'motorizedbicycle'].includes(t))) {
     out.push(ldToRaw(item));
-  } else if (type === 'product' && item.vehicleIdentificationNumber) {
+  } else if (types.includes('product') && vin) {
     out.push(ldToRaw(item));
-  } else if (type === 'itemlist' && Array.isArray(item.itemListElement)) {
+  } else if (types.includes('itemlist') && Array.isArray(item.itemListElement)) {
     for (const el of item.itemListElement) collectLdVehicles(el.item || el, out);
   } else if (Array.isArray(item['@graph'])) {
     for (const g of item['@graph']) collectLdVehicles(g, out);
@@ -138,7 +140,8 @@ function collectLdVehicles(item, out) {
 function ldToRaw(ld) {
   const offers = Array.isArray(ld.offers) ? ld.offers[0] : ld.offers || {};
   return {
-    vin: ld.vehicleIdentificationNumber,
+    vin: ld.vehicleIdentificationNumber || ld.vin || ld.mpn,
+    stock_number: ld.sku,
     make: ld.brand?.name || ld.manufacturer?.name || ld.brand,
     model: ld.model?.name || ld.model,
     trim: ld.vehicleConfiguration,

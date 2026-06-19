@@ -48,16 +48,27 @@ export async function newScrapePage(browser, remote = false) {
     ? await browser.newPage()
     : await (await browser.newContext({ userAgent: CONFIG.userAgent, viewport: { width: 1366, height: 900 } })).newPage();
 
-  // Bloquear imágenes/fonts/media: no se usan y son ~70-85% del ancho de banda.
-  // Deja document/script/xhr/fetch (las tarjetas viven ahí).
+  // Bloqueo de recursos para recortar ancho de banda (clave por el costo $8/GB del Scraping
+  // Browser). NUNCA bloquea document/script-principal/xhr/fetch (ahí viven las tarjetas y la
+  // API de inventario). SÍ bloquea: imagen/font/media, CSS, y dominios de analytics/ads/widgets.
   if (CONFIG.blockMedia) {
     await page.route('**/*', (route) => {
-      const t = route.request().resourceType();
-      return (t === 'image' || t === 'font' || t === 'media') ? route.abort() : route.continue();
+      const req = route.request();
+      const t = req.resourceType();
+      // 1) media/css: nunca se usan para extraer
+      if (t === 'image' || t === 'font' || t === 'media' || t === 'stylesheet') return route.abort();
+      // 2) analytics/tracking/ads/chat-widgets: puro overhead, seguro de bloquear
+      if ((t === 'script' || t === 'xhr' || t === 'fetch' || t === 'ping' || t === 'beacon') && BLOCK_HOSTS.test(req.url())) {
+        return route.abort();
+      }
+      return route.continue();
     }).catch(() => { /* el navegador no soporta route: seguir sin bloqueo */ });
   }
   return page;
 }
+
+// Dominios de analytics/tracking/ads/widgets que no aportan al inventario y solo gastan banda.
+const BLOCK_HOSTS = /google-analytics|googletagmanager|gtag\/js|doubleclick\.net|googlesyndication|google-adservices|facebook\.net|connect\.facebook|fbcdn|hotjar|clarity\.ms|segment\.(io|com)|mixpanel|amplitude|fullstory|optimizely|bat\.bing|snap\.licdn|tiktok\.com\/i18n|analytics\.tiktok|pinterest|criteo|taboola|outbrain|intercom|drift\.com|tawk\.to|zendesk|livechat|cookiebot|onetrust|trustarc|hs-scripts|hubspot|cdn\.cookielaw|newrelic|sentry\.io|cloudflareinsights|adroll|quantserve|scorecardresearch|addthis|sharethis/i;
 
 /**
  * CAPA DE FETCH GESTIONADA (anti-bot)
